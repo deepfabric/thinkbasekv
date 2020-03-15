@@ -10,7 +10,8 @@ import (
 )
 
 func TestPg(t *testing.T) {
-	db := New("testinfinivision", newali())
+	db := New("test.db", nil)
+	//db := New("testinfinivision", newali())
 	//db := New("testinfinivision-appid", newtencent())
 	if err := db.Set([]byte("a"), []byte("a")); err != nil {
 		log.Fatal(err)
