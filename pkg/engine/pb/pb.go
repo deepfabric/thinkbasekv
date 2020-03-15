@@ -22,6 +22,10 @@ func (db *pbEngine) NewBatch() (engine.Batch, error) {
 	return &pbBatch{db: db.db, bat: db.db.NewBatch()}, nil
 }
 
+func (db *pbEngine) NewSnapshot() (engine.Snapshot, error) {
+	return &pbSnapshot{db.db.NewSnapshot()}, nil
+}
+
 func (db *pbEngine) NewIterator(k []byte) (engine.Iterator, error) {
 	n := len(k) - 1
 	u := make([]byte, len(k))
@@ -103,4 +107,33 @@ func (itr *pbIterator) Value() ([]byte, error) {
 	r := make([]byte, len(v))
 	copy(r, v)
 	return r, nil
+}
+
+func (s *pbSnapshot) Close() error {
+	return s.s.Close()
+}
+
+func (s *pbSnapshot) Get(k []byte) ([]byte, error) {
+	v, c, err := s.s.Get(k)
+	if err == pebble.ErrNotFound {
+		err = engine.NotExist
+	}
+	if err != nil {
+		return nil, err
+	}
+	r := make([]byte, len(v))
+	copy(r, v)
+	c.Close()
+	return r, nil
+}
+
+func (s *pbSnapshot) NewIterator(k []byte) (engine.Iterator, error) {
+	n := len(k) - 1
+	u := make([]byte, len(k))
+	copy(u, k)
+	u[n] = k[n] + 1
+	return &pbIterator{itr: s.s.NewIter(&pebble.IterOptions{
+		LowerBound: k,
+		UpperBound: u,
+	})}, nil
 }

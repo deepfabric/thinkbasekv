@@ -1,4 +1,4 @@
-package ali
+package s3
 
 import (
 	"bytes"
@@ -14,15 +14,26 @@ import (
 	"github.com/cockroachdb/pebble/vfs"
 )
 
-func New(endpoint, accessKeyID, accessKeySecret string) (*ali, error) {
+func New(endpoint, accessKeyID, accessKeySecret string, acl int) (*alis3, error) {
 	cli, err := oss.New(endpoint, accessKeyID, accessKeySecret)
 	if err != nil {
 		return nil, err
 	}
-	return &ali{cli}, nil
+	var opt oss.Option
+	switch acl {
+	case Private:
+		opt = oss.ACL(oss.ACLPrivate)
+	case PublicRead:
+		opt = oss.ACL(oss.ACLPublicRead)
+	case PublicReadWrite:
+		opt = oss.ACL(oss.ACLPublicReadWrite)
+	default:
+		opt = oss.ACL(oss.ACLDefault)
+	}
+	return &alis3{opt, cli}, nil
 }
 
-func (a *ali) Create(name string) (vfs.File, error) {
+func (a *alis3) Create(name string) (vfs.File, error) {
 	s := strings.Split(name, "/")
 	bkt, err := a.cli.Bucket(s[0])
 	if err != nil {
@@ -34,7 +45,7 @@ func (a *ali) Create(name string) (vfs.File, error) {
 	return &file{s[1], a.cli, bkt}, nil
 }
 
-func (a *ali) Remove(name string) error {
+func (a *alis3) Remove(name string) error {
 	s := strings.Split(name, "/")
 	bkt, err := a.cli.Bucket(s[0])
 	if err != nil {
@@ -46,7 +57,7 @@ func (a *ali) Remove(name string) error {
 	return nil
 }
 
-func (a *ali) RemoveAll(name string) error {
+func (a *alis3) RemoveAll(name string) error {
 	if s := strings.Split(name, "/"); len(s) > 2 {
 		return a.Remove(name)
 	}
@@ -74,14 +85,14 @@ func (a *ali) RemoveAll(name string) error {
 	return a.cli.DeleteBucket(name)
 }
 
-func (a *ali) ReuseForWrite(oldname, newname string) (vfs.File, error) {
+func (a *alis3) ReuseForWrite(oldname, newname string) (vfs.File, error) {
 	if err := a.Rename(oldname, newname); err != nil {
 		return nil, err
 	}
 	return a.Open(newname)
 }
 
-func (a *ali) Link(oldname, newname string) error {
+func (a *alis3) Link(oldname, newname string) error {
 	var r io.Reader
 
 	{
@@ -110,7 +121,7 @@ func (a *ali) Link(oldname, newname string) error {
 	return nil
 }
 
-func (a *ali) Rename(oldname, newname string) error {
+func (a *alis3) Rename(oldname, newname string) error {
 	var r io.Reader
 
 	{
@@ -139,15 +150,15 @@ func (a *ali) Rename(oldname, newname string) error {
 	return a.Remove(oldname)
 }
 
-func (a *ali) MkdirAll(dir string, _ os.FileMode) error {
-	return a.cli.CreateBucket(dir, oss.ACL(oss.ACLPublicReadWrite))
+func (a *alis3) MkdirAll(dir string, _ os.FileMode) error {
+	return a.cli.CreateBucket(dir, a.opt)
 }
 
-func (a *ali) Lock(name string) (io.Closer, error) {
+func (a *alis3) Lock(name string) (io.Closer, error) {
 	return &file{}, nil
 }
 
-func (a *ali) OpenDir(name string) (vfs.File, error) {
+func (a *alis3) OpenDir(name string) (vfs.File, error) {
 	bkt, err := a.cli.Bucket(name)
 	if err != nil {
 		return nil, err
@@ -155,13 +166,16 @@ func (a *ali) OpenDir(name string) (vfs.File, error) {
 	return &file{"", a.cli, bkt}, nil
 }
 
-func (a *ali) Open(name string, opts ...vfs.OpenOption) (vfs.File, error) {
+func (a *alis3) Open(name string, opts ...vfs.OpenOption) (vfs.File, error) {
 	s := strings.Split(name, "/")
 	bkt, err := a.cli.Bucket(s[0])
 	if err != nil {
 		return nil, err
 	}
 	if ok, err := bkt.IsObjectExist(s[1]); err != nil {
+		if err.(oss.ServiceError).StatusCode == 403 {
+			return nil, os.ErrNotExist
+		}
 		return nil, err
 	} else if !ok {
 		return nil, os.ErrNotExist
@@ -173,7 +187,7 @@ func (a *ali) Open(name string, opts ...vfs.OpenOption) (vfs.File, error) {
 	return f, nil
 }
 
-func (a *ali) Stat(name string) (os.FileInfo, error) {
+func (a *alis3) Stat(name string) (os.FileInfo, error) {
 	f, err := a.Open(name)
 	if err != nil {
 		return nil, err
@@ -181,7 +195,7 @@ func (a *ali) Stat(name string) (os.FileInfo, error) {
 	return f.(*file), nil
 }
 
-func (a *ali) List(dir string) ([]string, error) {
+func (a *alis3) List(dir string) ([]string, error) {
 	bkt, err := a.cli.Bucket(dir)
 	if err != nil {
 		return nil, err
@@ -206,15 +220,15 @@ func (a *ali) List(dir string) ([]string, error) {
 	return rs, nil
 }
 
-func (a *ali) PathBase(p string) string {
+func (a *alis3) PathBase(p string) string {
 	return path.Base(p)
 }
 
-func (a *ali) PathJoin(elem ...string) string {
+func (a *alis3) PathJoin(elem ...string) string {
 	return path.Join(elem...)
 }
 
-func (a *ali) PathDir(p string) string {
+func (a *alis3) PathDir(p string) string {
 	return path.Dir(p)
 }
 

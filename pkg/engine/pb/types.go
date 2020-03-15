@@ -14,3 +14,7 @@ type pbBatch struct {
 type pbIterator struct {
 	itr *pebble.Iterator
 }
+
+type pbSnapshot struct {
+	s *pebble.Snapshot
+}

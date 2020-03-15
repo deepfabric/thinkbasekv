@@ -9,6 +9,7 @@ var (
 type DB interface {
 	Close() error
 	NewBatch() (Batch, error)
+	NewSnapshot() (Snapshot, error)
 	NewIterator([]byte) (Iterator, error)
 
 	Del([]byte) error
@@ -30,4 +31,10 @@ type Iterator interface {
 	Seek([]byte) error
 	Key() []byte
 	Value() ([]byte, error)
+}
+
+type Snapshot interface {
+	Close() error
+	Get([]byte) ([]byte, error)
+	NewIterator([]byte) (Iterator, error)
 }
