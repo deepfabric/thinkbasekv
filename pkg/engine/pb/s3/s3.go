@@ -48,7 +48,6 @@ func (a *alis3) Create(name string) (vfs.File, error) {
 	if err := bkt.PutObject(s[1], strings.NewReader("")); err != nil {
 		return nil, err
 	}
-	a.c.Add(name, []byte{})
 	return &file{s[1], a.c, a.cli, bkt}, nil
 }
 
@@ -250,13 +249,8 @@ func (f *file) Close() error {
 }
 
 func (f *file) Read(p []byte) (int, error) {
-	if data, ok := f.c.Get(f.bkt.BucketName + "/" + f.name); ok {
-		if len(p) > len(data) {
-			p = p[:len(data)]
-			copy(p, data)
-		} else {
-			copy(p, data[:len(p)])
-		}
+	if data, err := f.c.Read(f.bkt.BucketName+"/"+f.name, 0, len(p)); err == nil {
+		copy(p, data)
 		return len(p), nil
 	}
 	body, err := f.bkt.GetObject(f.name, oss.Range(0, int64(len(p))))
@@ -273,14 +267,8 @@ func (f *file) Read(p []byte) (int, error) {
 }
 
 func (f *file) ReadAt(p []byte, off int64) (int, error) {
-	if data, ok := f.c.Get(f.bkt.BucketName + "/" + f.name); ok {
-		data := data[int(off):]
-		if len(p) > len(data) {
-			p = p[:len(data)]
-			copy(p, data)
-		} else {
-			copy(p, data[:len(p)])
-		}
+	if data, err := f.c.Read(f.bkt.BucketName+"/"+f.name, off, len(p)); err == nil {
+		copy(p, data)
 		return len(p), nil
 	}
 	body, err := f.bkt.GetObject(f.name, oss.Range(off, off+int64(len(p))))
@@ -297,6 +285,9 @@ func (f *file) ReadAt(p []byte, off int64) (int, error) {
 }
 
 func (f *file) Write(p []byte) (int, error) {
+	if err := f.c.Write(f.bkt.BucketName+"/"+f.name, p); err != nil {
+		return -1, err
+	}
 	{
 		size := int(f.Size())
 		data := make([]byte, size)
@@ -312,7 +303,6 @@ func (f *file) Write(p []byte) (int, error) {
 	if err := f.bkt.PutObject(f.name, bytes.NewReader(p)); err != nil {
 		return -1, err
 	}
-	f.c.Add(f.bkt.BucketName+"/"+f.name, p)
 	return len(p), nil
 }
 

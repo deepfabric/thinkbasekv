@@ -2,6 +2,7 @@ package cache
 
 import (
 	"container/list"
+	"errors"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -27,57 +28,51 @@ func (c *cache) IsExist(path string) bool {
 	return ok
 }
 
-func (c *cache) Get(path string) ([]byte, bool) {
+func (c *cache) Read(path string, off int64, length int) ([]byte, error) {
 	c.Lock()
-	data, ok := c.get(path)
+	data, err := c.read(path, off, length)
 	c.Unlock()
-	return data, ok
+	return data, err
 }
 
-func (c *cache) Add(path string, data []byte) bool {
+func (c *cache) Write(path string, data []byte) error {
 	c.Lock()
-	ok := c.add(path, data)
+	err := c.write(path, data)
 	c.Unlock()
-	return ok
+	return err
 }
 
-func (c *cache) get(path string) ([]byte, bool) {
+func (c *cache) read(path string, off int64, length int) ([]byte, error) {
 	if e, ok := c.mp[path]; ok {
-		c.chg(e)
-		if e.worn {
-			return nil, false
-		}
-		if data, err := ioutil.ReadFile(e.path); err != nil {
-			return nil, false
+		c.get(e, 0)
+		if data, err := c.readFile(e.path, off, length); err != nil {
+			return nil, err
 		} else {
-			return data, true
+			return data, nil
 		}
 	}
-	return nil, false
+	return nil, errors.New("file not exist")
 }
 
-func (c *cache) add(path string, data []byte) bool {
+func (c *cache) write(path string, data []byte) error {
 	if e, ok := c.mp[path]; ok {
-		c.chg(e)
-		if !c.writeFile(e.path, data) {
-			e.worn = true
-		} else {
-			e.worn = false
+		if err := c.writeFile(e.path, e.size, data, true); err != nil {
+			return err
 		}
-		return false
+		c.get(e, len(data))
+		e.size += len(data)
+		return nil
 	}
 	e := &entry{size: len(data), path: c.dir + "/" + path}
-	if !c.writeFile(e.path, data) {
-		e.worn = true
-	} else {
-		e.worn = false
+	if err := c.writeFile(e.path, 0, data, false); err != nil {
+		return err
 	}
 	c.mp[path] = e
 	c.set(e)
-	return true
+	return nil
 }
 
-func (c *cache) chg(e *entry) {
+func (c *cache) get(e *entry, size int) {
 	switch e.typ {
 	case H:
 		isBack := e.h.Next() == nil
@@ -90,10 +85,13 @@ func (c *cache) chg(e *entry) {
 	switch {
 	case e.h == nil:
 		c.cq.l.MoveToFront(e.c)
+		c.cq.size += size
+		c.hq.size += size
 		e.h = c.hq.l.PushFront(e)
 	default:
 		e.typ = H
 		c.cq.l.Remove(e.c)
+		c.cq.size -= e.size + size
 		e.c = nil
 		c.hq.l.MoveToFront(e.h)
 		c.exchange()
@@ -105,13 +103,16 @@ func (c *cache) set(e *entry) {
 	switch {
 	case c.hq.size < c.size:
 		e.typ = H
+		c.hq.size += e.size
 		e.h = c.hq.l.PushFront(e)
 	case c.cq.size < c.size/ColdMultiples:
 		e.typ = C
+		c.cq.size += e.size
 		e.c = c.cq.l.PushFront(e)
 	default:
 		c.release()
 		e.typ = C
+		c.cq.size += e.size
 		e.c = c.cq.l.PushFront(e)
 	}
 }
@@ -121,9 +122,11 @@ func (c *cache) release() {
 		e := ele.Value.(*entry)
 		e.c = nil
 		c.cq.l.Remove(ele)
+		c.cq.size -= e.size
 		if e.h != nil {
 			c.hq.l.Remove(e.h)
 			e.h = nil
+			c.hq.size -= e.size
 		}
 		delete(c.mp, e.path)
 		os.Remove(e.path)
@@ -138,6 +141,7 @@ func (c *cache) reduce() {
 		}
 		e.h = nil
 		c.hq.l.Remove(ele)
+		c.hq.size -= e.size
 	}
 }
 
@@ -150,17 +154,46 @@ func (c *cache) exchange() {
 		c.hq.l.Remove(ele)
 		e.h = nil
 		e.typ = C
+		c.hq.size -= e.size
 		e.c = c.cq.l.PushFront(e)
 	}
 }
 
-func (c *cache) writeFile(path string, data []byte) bool {
-	dir, _ := filepath.Split(path)
-	if err := os.MkdirAll(dir, os.FileMode(0774)); err != nil {
-		return false
+func (c *cache) readFile(path string, off int64, length int) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
 	}
-	if err := ioutil.WriteFile(path, data, os.FileMode(0664)); err != nil {
-		return false
+	data := make([]byte, length)
+	n, err := f.ReadAt(data, off)
+	switch {
+	case err != nil:
+		return nil, err
+	case n != length:
+		return nil, errors.New("read failed")
 	}
-	return true
+	return data, nil
+}
+
+func (c *cache) writeFile(path string, size int, data []byte, isAppend bool) error {
+	if !isAppend {
+		dir, _ := filepath.Split(path)
+		if err := os.MkdirAll(dir, os.FileMode(0774)); err != nil {
+			return err
+		}
+		if err := ioutil.WriteFile(path, data, os.FileMode(0664)); err != nil {
+			return err
+		}
+	} else {
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, os.FileMode(0664))
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		if _, err = f.Write(data); err != nil {
+			f.Truncate(int64(size))
+			return err
+		}
+	}
+	return nil
 }

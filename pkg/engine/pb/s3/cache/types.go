@@ -17,14 +17,13 @@ const (
 
 type Cache interface {
 	IsExist(string) bool
-	Add(string, []byte) bool
-	Get(string) ([]byte, bool)
+	Write(string, []byte) error
+	Read(string, int64, int) ([]byte, error)
 }
 
 type entry struct {
 	typ  int
 	size int
-	worn bool
 	path string
 	h, c *list.Element
 }
