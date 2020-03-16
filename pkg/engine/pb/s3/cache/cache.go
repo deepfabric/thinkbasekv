@@ -8,17 +8,28 @@ import (
 	"path/filepath"
 )
 
-func New(size int, dir string) (*cache, error) {
+func New(size int, dir string, usr interface{}, cbk CallBack) (*cache, error) {
 	if err := os.MkdirAll(dir, os.FileMode(0774)); err != nil {
 		return nil, err
 	}
 	return &cache{
+		usr:  usr,
+		cbk:  cbk,
 		dir:  dir,
 		size: size,
 		mp:   make(map[string]*entry),
 		hq:   &queue{0, new(list.List)},
 		cq:   &queue{0, new(list.List)},
 	}, nil
+}
+
+func (c *cache) Close() error {
+	c.Lock()
+	defer c.Unlock()
+	for _, e := range c.mp {
+		c.cbk(c.usr, e.path, e.rowpath)
+	}
+	return nil
 }
 
 func (c *cache) IsExist(path string) bool {
@@ -60,10 +71,11 @@ func (c *cache) write(path string, data []byte) error {
 			return err
 		}
 		c.get(e, len(data))
+		e.dirty = true
 		e.size += len(data)
 		return nil
 	}
-	e := &entry{size: len(data), path: c.dir + "/" + path}
+	e := &entry{size: len(data), dirty: true, path: c.dir + "/" + path, rowpath: path}
 	if err := c.writeFile(e.path, 0, data, false); err != nil {
 		return err
 	}
@@ -151,6 +163,7 @@ func (c *cache) exchange() {
 		if e.typ != H {
 			return
 		}
+		c.cbk(c.usr, e.path, e.rowpath)
 		c.hq.l.Remove(ele)
 		e.h = nil
 		e.typ = C

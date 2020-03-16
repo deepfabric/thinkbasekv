@@ -1,8 +1,6 @@
 package s3
 
 import (
-	"bytes"
-	"errors"
 	"io"
 	"io/ioutil"
 	"os"
@@ -16,14 +14,15 @@ import (
 	"github.com/deepfabric/thinkbasekv/pkg/engine/pb/s3/cache"
 )
 
-func New(cfg *Config, acl int) (*alis3, error) {
-	c, err := cache.New(cfg.CacheSize, cfg.CacheDir)
+func New(cfg *Config, acl int) (*alis3, cache.Cache, error) {
+	a := new(alis3)
+	c, err := cache.New(cfg.CacheSize, cfg.CacheDir, a, write)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cli, err := oss.New(cfg.Endpoint, cfg.AccessKeyID, cfg.AccessKeySecret)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var opt oss.Option
 	switch acl {
@@ -36,7 +35,8 @@ func New(cfg *Config, acl int) (*alis3, error) {
 	default:
 		opt = oss.ACL(oss.ACLDefault)
 	}
-	return &alis3{c, opt, cli}, nil
+	a.c, a.opt, a.cli = c, opt, cli
+	return a, c, nil
 }
 
 func (a *alis3) Create(name string) (vfs.File, error) {
@@ -288,21 +288,6 @@ func (f *file) Write(p []byte) (int, error) {
 	if err := f.c.Write(f.bkt.BucketName+"/"+f.name, p); err != nil {
 		return -1, err
 	}
-	{
-		size := int(f.Size())
-		data := make([]byte, size)
-		if n, err := f.Read(data); err != nil {
-			return -1, err
-		} else {
-			if n != size {
-				return -1, errors.New("read failed")
-			}
-			p = append(data, p...)
-		}
-	}
-	if err := f.bkt.PutObject(f.name, bytes.NewReader(p)); err != nil {
-		return -1, err
-	}
 	return len(p), nil
 }
 
@@ -345,4 +330,21 @@ func (f *file) IsDir() bool {
 
 func (f *file) Sys() interface{} {
 	return nil
+}
+
+func write(usr interface{}, path string, rowpath string) {
+	a := usr.(*alis3)
+	s := strings.Split(rowpath, "/")
+	bkt, err := a.cli.Bucket(s[0])
+	if err != nil {
+		panic(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+	if err := bkt.PutObject(s[1], f); err != nil {
+		panic(err)
+	}
 }

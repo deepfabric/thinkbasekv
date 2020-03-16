@@ -15,17 +15,22 @@ const (
 	ColdMultiples = 1024
 )
 
+type CallBack func(interface{}, string, string)
+
 type Cache interface {
+	Close() error
 	IsExist(string) bool
 	Write(string, []byte) error
 	Read(string, int64, int) ([]byte, error)
 }
 
 type entry struct {
-	typ  int
-	size int
-	path string
-	h, c *list.Element
+	typ     int
+	size    int
+	dirty   bool
+	path    string
+	rowpath string
+	h, c    *list.Element
 }
 
 type queue struct {
@@ -38,5 +43,7 @@ type cache struct {
 	size   int
 	dir    string
 	hq, cq *queue
+	cbk    CallBack
+	usr    interface{}
 	mp     map[string]*entry
 }

@@ -7,12 +7,13 @@ import (
 
 	"github.com/cockroachdb/pebble/vfs"
 	"github.com/deepfabric/thinkbasekv/pkg/engine/pb/s3"
+	"github.com/deepfabric/thinkbasekv/pkg/engine/pb/s3/cache"
 )
 
 func TestPg(t *testing.T) {
 	//db := New("test.db", nil)
 	//db := New("testinfinivision", newali())
-	db := New("testinfinivision-1301466745", newtencent())
+	db := New("testinfinivision-1301466745", nil)
 	if err := db.Set([]byte("a"), []byte("a")); err != nil {
 		log.Fatal(err)
 	}
@@ -38,7 +39,7 @@ func TestPg(t *testing.T) {
 	fmt.Printf("%s\n", string(v))
 }
 
-func newali() vfs.FS {
+func newali() (vfs.FS, cache.Cache) {
 	endpoint := "http://oss-cn-hangzhou.aliyuncs.com"
 	accessKeyID := ""
 	accessKeySecret := ""
@@ -50,14 +51,14 @@ func newali() vfs.FS {
 		AccessKeyID:     accessKeyID,
 		AccessKeySecret: accessKeySecret,
 	}
-	fs, err := s3.New(cfg, acl)
+	fs, c, err := s3.New(cfg, acl)
 	if err != nil {
 		log.Fatal(err)
 	}
-	return fs
+	return fs, c
 }
 
-func newtencent() vfs.FS {
+func newtencent() (vfs.FS, cache.Cache) {
 	endpoint := "cos.ap-chengdu.myqcloud.com"
 	accessKeyID := ""
 	accessKeySecret := ""
@@ -70,9 +71,9 @@ func newtencent() vfs.FS {
 		AccessKeySecret: accessKeySecret,
 	}
 
-	fs, err := s3.New(cfg, acl)
+	fs, c, err := s3.New(cfg, acl)
 	if err != nil {
 		log.Fatal(err)
 	}
-	return fs
+	return fs, c
 }
