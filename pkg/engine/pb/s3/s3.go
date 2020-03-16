@@ -2,6 +2,7 @@ package s3
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"io/ioutil"
 	"os"
@@ -296,6 +297,18 @@ func (f *file) ReadAt(p []byte, off int64) (int, error) {
 }
 
 func (f *file) Write(p []byte) (int, error) {
+	{
+		size := int(f.Size())
+		data := make([]byte, size)
+		if n, err := f.Read(data); err != nil {
+			return -1, err
+		} else {
+			if n != size {
+				return -1, errors.New("read failed")
+			}
+			p = append(data, p...)
+		}
+	}
 	if err := f.bkt.PutObject(f.name, bytes.NewReader(p)); err != nil {
 		return -1, err
 	}
