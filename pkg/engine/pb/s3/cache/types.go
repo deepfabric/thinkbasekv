@@ -16,6 +16,7 @@ const (
 )
 
 type Cache interface {
+	IsExist(string) bool
 	Add(string, []byte) bool
 	Get(string) ([]byte, bool)
 }

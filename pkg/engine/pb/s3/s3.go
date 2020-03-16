@@ -178,13 +178,14 @@ func (a *alis3) Open(name string, opts ...vfs.OpenOption) (vfs.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ok, err := bkt.IsObjectExist(s[1]); err != nil {
-		if err.(oss.ServiceError).StatusCode == 403 {
-			return nil, os.ErrNotExist
+	if !a.c.IsExist(name) { // file not exist in cache
+		if _, err := bkt.GetObjectDetailedMeta(s[1]); err != nil {
+			switch code := err.(oss.ServiceError).StatusCode; code {
+			case 403, 404:
+				return nil, os.ErrNotExist
+			}
+			return nil, err
 		}
-		return nil, err
-	} else if !ok {
-		return nil, os.ErrNotExist
 	}
 	f := &file{s[1], a.c, a.cli, bkt}
 	for _, opt := range opts {

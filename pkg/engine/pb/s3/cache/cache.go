@@ -20,6 +20,13 @@ func New(size int, dir string) (*cache, error) {
 	}, nil
 }
 
+func (c *cache) IsExist(path string) bool {
+	c.Lock()
+	_, ok := c.mp[path]
+	c.Unlock()
+	return ok
+}
+
 func (c *cache) Get(path string) ([]byte, bool) {
 	c.Lock()
 	data, ok := c.get(path)
