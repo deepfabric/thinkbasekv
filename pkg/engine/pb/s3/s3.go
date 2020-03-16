@@ -157,7 +157,8 @@ func (a *alis3) Rename(oldname, newname string) error {
 }
 
 func (a *alis3) MkdirAll(dir string, _ os.FileMode) error {
-	return a.cli.CreateBucket(dir, a.opt)
+	a.cli.CreateBucket(dir, a.opt)
+	return nil
 }
 
 func (a *alis3) Lock(name string) (io.Closer, error) {
