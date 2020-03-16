@@ -32,11 +32,11 @@ func (c *cache) Close() error {
 	return nil
 }
 
-func (c *cache) IsExist(path string) bool {
+func (c *cache) IsExist(path string) (int64, bool) {
 	c.Lock()
-	_, ok := c.mp[path]
+	e, ok := c.mp[path]
 	c.Unlock()
-	return ok
+	return int64(e.size), ok
 }
 
 func (c *cache) Read(path string, off int64, length int) ([]byte, error) {

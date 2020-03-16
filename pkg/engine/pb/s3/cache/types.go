@@ -19,8 +19,8 @@ type CallBack func(interface{}, string, string)
 
 type Cache interface {
 	Close() error
-	IsExist(string) bool
 	Write(string, []byte) error
+	IsExist(string) (int64, bool)
 	Read(string, int64, int) ([]byte, error)
 }
 

@@ -179,7 +179,7 @@ func (a *alis3) Open(name string, opts ...vfs.OpenOption) (vfs.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !a.c.IsExist(name) { // file not exist in cache
+	if _, ok := a.c.IsExist(name); !ok { // file not exist in cache
 		if _, err := bkt.GetObjectDetailedMeta(s[1]); err != nil {
 			switch code := err.(oss.ServiceError).StatusCode; code {
 			case 403, 404:
@@ -305,6 +305,9 @@ func (f *file) Name() string {
 func (f *file) Size() int64 {
 	if len(f.name) == 0 {
 		return 0
+	}
+	if size, ok := f.c.IsExist(f.name); ok {
+		return size
 	}
 	if md, err := f.bkt.GetObjectDetailedMeta(f.name); err != nil {
 		return -1
