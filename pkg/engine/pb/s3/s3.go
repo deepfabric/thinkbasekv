@@ -12,10 +12,15 @@ import (
 
 	"github.com/aliyun/aliyun-oss-go-sdk/oss"
 	"github.com/cockroachdb/pebble/vfs"
+	"github.com/deepfabric/thinkbasekv/pkg/engine/pb/s3/cache"
 )
 
-func New(endpoint, accessKeyID, accessKeySecret string, acl int) (*alis3, error) {
-	cli, err := oss.New(endpoint, accessKeyID, accessKeySecret)
+func New(cfg *Config, acl int) (*alis3, error) {
+	c, err := cache.New(cfg.CacheSize, cfg.CacheDir)
+	if err != nil {
+		return nil, err
+	}
+	cli, err := oss.New(cfg.Endpoint, cfg.AccessKeyID, cfg.AccessKeySecret)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +35,7 @@ func New(endpoint, accessKeyID, accessKeySecret string, acl int) (*alis3, error)
 	default:
 		opt = oss.ACL(oss.ACLDefault)
 	}
-	return &alis3{opt, cli}, nil
+	return &alis3{c, opt, cli}, nil
 }
 
 func (a *alis3) Create(name string) (vfs.File, error) {
@@ -42,7 +47,8 @@ func (a *alis3) Create(name string) (vfs.File, error) {
 	if err := bkt.PutObject(s[1], strings.NewReader("")); err != nil {
 		return nil, err
 	}
-	return &file{s[1], a.cli, bkt}, nil
+	a.c.Add(name, []byte{})
+	return &file{s[1], a.c, a.cli, bkt}, nil
 }
 
 func (a *alis3) Remove(name string) error {
@@ -155,7 +161,7 @@ func (a *alis3) MkdirAll(dir string, _ os.FileMode) error {
 }
 
 func (a *alis3) Lock(name string) (io.Closer, error) {
-	return &file{}, nil
+	return &file{c: a.c}, nil
 }
 
 func (a *alis3) OpenDir(name string) (vfs.File, error) {
@@ -163,7 +169,7 @@ func (a *alis3) OpenDir(name string) (vfs.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &file{"", a.cli, bkt}, nil
+	return &file{"", a.c, a.cli, bkt}, nil
 }
 
 func (a *alis3) Open(name string, opts ...vfs.OpenOption) (vfs.File, error) {
@@ -180,7 +186,7 @@ func (a *alis3) Open(name string, opts ...vfs.OpenOption) (vfs.File, error) {
 	} else if !ok {
 		return nil, os.ErrNotExist
 	}
-	f := &file{s[1], a.cli, bkt}
+	f := &file{s[1], a.c, a.cli, bkt}
 	for _, opt := range opts {
 		opt.Apply(f)
 	}
@@ -241,6 +247,15 @@ func (f *file) Close() error {
 }
 
 func (f *file) Read(p []byte) (int, error) {
+	if data, ok := f.c.Get(f.bkt.BucketName + "/" + f.name); ok {
+		if len(p) > len(data) {
+			p = p[:len(data)]
+			copy(p, data)
+		} else {
+			copy(p, data[:len(p)])
+		}
+		return len(p), nil
+	}
 	body, err := f.bkt.GetObject(f.name, oss.Range(0, int64(len(p))))
 	if err != nil {
 		return -1, err
@@ -255,6 +270,16 @@ func (f *file) Read(p []byte) (int, error) {
 }
 
 func (f *file) ReadAt(p []byte, off int64) (int, error) {
+	if data, ok := f.c.Get(f.bkt.BucketName + "/" + f.name); ok {
+		data := data[int(off):]
+		if len(p) > len(data) {
+			p = p[:len(data)]
+			copy(p, data)
+		} else {
+			copy(p, data[:len(p)])
+		}
+		return len(p), nil
+	}
 	body, err := f.bkt.GetObject(f.name, oss.Range(off, off+int64(len(p))))
 	if err != nil {
 		return -1, err
@@ -272,6 +297,7 @@ func (f *file) Write(p []byte) (int, error) {
 	if err := f.bkt.PutObject(f.name, bytes.NewReader(p)); err != nil {
 		return -1, err
 	}
+	f.c.Add(f.bkt.BucketName+"/"+f.name, p)
 	return len(p), nil
 }
 

@@ -10,9 +10,9 @@ import (
 )
 
 func TestPg(t *testing.T) {
-	db := New("test.db", nil)
+	//db := New("test.db", nil)
 	//db := New("testinfinivision", newali())
-	//db := New("testinfinivision-appid", newtencent())
+	db := New("testinfinivision-1301466745", newtencent())
 	if err := db.Set([]byte("a"), []byte("a")); err != nil {
 		log.Fatal(err)
 	}
@@ -43,7 +43,14 @@ func newali() vfs.FS {
 	accessKeyID := ""
 	accessKeySecret := ""
 	acl := s3.PublicReadWrite
-	fs, err := s3.New(endpoint, accessKeyID, accessKeySecret, acl)
+	cfg := &s3.Config{
+		CacheDir:        "./tmp",
+		CacheSize:       1024 * 1024 * 1024,
+		Endpoint:        endpoint,
+		AccessKeyID:     accessKeyID,
+		AccessKeySecret: accessKeySecret,
+	}
+	fs, err := s3.New(cfg, acl)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -55,7 +62,15 @@ func newtencent() vfs.FS {
 	accessKeyID := ""
 	accessKeySecret := ""
 	acl := s3.PublicReadWrite
-	fs, err := s3.New(endpoint, accessKeyID, accessKeySecret, acl)
+	cfg := &s3.Config{
+		CacheDir:        "./tmp",
+		CacheSize:       1024 * 1024 * 1024,
+		Endpoint:        endpoint,
+		AccessKeyID:     accessKeyID,
+		AccessKeySecret: accessKeySecret,
+	}
+
+	fs, err := s3.New(cfg, acl)
 	if err != nil {
 		log.Fatal(err)
 	}
