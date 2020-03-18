@@ -1,8 +1,11 @@
 package s3
 
 import (
+	"sync"
+
 	"github.com/aliyun/aliyun-oss-go-sdk/oss"
-	"github.com/deepfabric/thinkbasekv/pkg/engine/pb/s3/cache"
+	"github.com/cockroachdb/pebble/vfs"
+	"github.com/deepfabric/thinkbasekv/pkg/engine/pb/s3/cfs"
 )
 
 const (
@@ -10,6 +13,12 @@ const (
 	PublicRead
 	PublicReadWrite
 )
+
+type FS interface {
+	vfs.FS
+	Run()
+	Stop()
+}
 
 type Config struct {
 	CacheSize       int
@@ -19,15 +28,25 @@ type Config struct {
 	AccessKeySecret string
 }
 
+type message struct {
+	path    string
+	rowpath string
+}
+
 type alis3 struct {
-	c   cache.Cache
+	fs  cfs.FS
+	mp  *sync.Map
 	opt oss.Option
 	cli *oss.Client
+	ch  chan struct{}
+	mch chan *message
+	wg  sync.WaitGroup
 }
 
 type file struct {
 	name string
-	c    cache.Cache
+	a    *alis3
+	fs   cfs.FS
 	cli  *oss.Client
 	bkt  *oss.Bucket
 }
