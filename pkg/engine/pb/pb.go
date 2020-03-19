@@ -7,7 +7,7 @@ import (
 )
 
 func New(name string, fs vfs.FS) engine.DB {
-	if db, err := pebble.Open(name, &pebble.Options{FS: fs /*, DisableWAL: true*/}); err != nil {
+	if db, err := pebble.Open(name, &pebble.Options{FS: fs}); err != nil {
 		return nil
 	} else {
 		return &pbEngine{db}
@@ -42,7 +42,6 @@ func (db *pbEngine) Del(k []byte) error {
 }
 
 func (db *pbEngine) Set(k, v []byte) error {
-	//	return db.db.Set(k, v, &pebble.WriteOptions{false})
 	return db.db.Set(k, v, nil)
 }
 
@@ -65,7 +64,6 @@ func (b *pbBatch) Cancel() error {
 }
 
 func (b *pbBatch) Commit() error {
-	//	return b.db.Apply(b.bat, &pebble.WriteOptions{false})
 	return b.db.Apply(b.bat, nil)
 }
 
@@ -74,7 +72,6 @@ func (b *pbBatch) Del(k []byte) error {
 }
 
 func (b *pbBatch) Set(k, v []byte) error {
-	//	return b.bat.Set(k, v, &pebble.WriteOptions{false})
 	return b.bat.Set(k, v, nil)
 }
 

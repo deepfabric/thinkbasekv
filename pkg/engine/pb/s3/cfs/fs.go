@@ -48,18 +48,16 @@ func (c *fs) Close() error {
 
 func (c *fs) IsExist(path string) (int64, bool) {
 	c.Lock()
-	f, ok := c.mp[path]
-	c.Unlock()
-	if ok {
+	defer c.Unlock()
+	if f, ok := c.mp[path]; ok {
 		return int64(f.size + len(f.buf)), ok
 	}
-	return -1, ok
+	return -1, false
 }
 
 func (c *fs) Remove(path string) (error, bool) {
 	var f *file
 	var ok bool
-	var err error
 
 	c.Lock()
 	if f, ok = c.mp[path]; ok {
@@ -73,16 +71,15 @@ func (c *fs) Remove(path string) (error, bool) {
 		if f.c != nil {
 			c.cq.l.Remove(f.c)
 		}
+		c.size -= f.size
 		delete(c.mp, path)
-		err = os.Remove(f.path)
+		c.cbk(c.usr, f.path, f.rowpath, -1)
 	}
 	c.Unlock()
-	return err, ok
+	return nil, ok
 }
 
 func (c *fs) RemoveAll(path string) error {
-	var err error
-
 	fs, err := c.List(path)
 	if err != nil {
 		return err
@@ -100,14 +97,13 @@ func (c *fs) RemoveAll(path string) error {
 			if f.c != nil {
 				c.cq.l.Remove(f.c)
 			}
+			c.size -= f.size
 			delete(c.mp, path+"/"+fs[i])
-			if privErr := os.Remove(f.path); privErr != nil {
-				err = privErr
-			}
+			c.cbk(c.usr, f.path, f.rowpath, -1)
 		}
 	}
 	c.Unlock()
-	return err
+	return nil
 }
 
 func (c *fs) List(path string) ([]string, error) {
@@ -197,7 +193,12 @@ func (c *fs) Write(path string, data []byte) (error, bool) {
 
 func (c *fs) load(dir string) error {
 	d, err := os.Open(dir)
-	if err != nil {
+	switch {
+	case err == nil:
+		break
+	case os.IsNotExist(err):
+		return nil
+	default:
 		return err
 	}
 	fs, err := d.Readdir(-1)
@@ -267,6 +268,7 @@ func (c *fs) get(f *file, size int) {
 }
 
 func (c *fs) set(f *file) {
+	c.size += f.size
 	switch {
 	case c.size < c.limit-c.limit/ColdMultiples:
 		f.typ = H
@@ -284,10 +286,14 @@ func (c *fs) set(f *file) {
 func (c *fs) release() {
 	for e := c.cq.l.Back(); e != nil; e = e.Prev() {
 		f := e.Value.(*file)
-		if isSST(f.rowpath) {
+		if f.dirty {
 			if len(f.buf) > 0 {
 				f.write(f.buf)
 			}
+			c.cbk(c.usr, f.path, f.rowpath, f.size)
+			f.dirty = false
+		}
+		if isSST(f.rowpath) {
 			if f.fi != nil {
 				f.fi.Close()
 			}
@@ -299,11 +305,9 @@ func (c *fs) release() {
 			}
 			c.size -= f.size
 			delete(c.mp, f.rowpath)
-		}
-		if f.dirty {
-			c.cbk(c.usr, f.path, f.rowpath, f.size)
-			f.dirty = false
-			return
+			if c.size < c.limit {
+				return
+			}
 		}
 	}
 }
@@ -353,7 +357,7 @@ func (f *file) readFile(off int64, length int) ([]byte, error) {
 		}
 		defer fi.Close()
 		size := length
-		if size+length > f.size {
+		if int(off)+length > f.size {
 			size = f.size - int(off)
 		}
 		data = make([]byte, size)
