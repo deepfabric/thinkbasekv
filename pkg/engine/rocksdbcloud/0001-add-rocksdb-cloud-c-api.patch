@@ -1,0 +1,478 @@
+From 8588c0bf673f464ee2659e3ee0f770e35d8e4c74 Mon Sep 17 00:00:00 2001
+From: swj <1186093704@qq.com>
+Date: Wed, 25 Mar 2020 10:26:56 +0800
+Subject: [PATCH] add rocksdb cloud c api
+
+---
+ cloud/aws/aws_retry.cc                    |   6 ++
+ cloud/examples/Makefile                   |  11 ++-
+ cloud/examples/c_cloud_example.c          |  60 +++++++++++++++
+ cloud/examples/clone_example.cc           |   8 +-
+ cloud/examples/cloud_dump.cc              |  12 ++-
+ cloud/examples/cloud_durable_example.cc   |   7 +-
+ db/c.cc                                   | 121 ++++++++++++++++++++++++++++++
+ include/rocksdb/c.h                       |  36 +++++++++
+ include/rocksdb/cloud/cloud_env_options.h |  10 ++-
+ 9 files changed, 258 insertions(+), 13 deletions(-)
+ create mode 100644 cloud/examples/c_cloud_example.c
+
+diff --git a/cloud/aws/aws_retry.cc b/cloud/aws/aws_retry.cc
+index 20a239c51..e04f01c2e 100644
+--- a/cloud/aws/aws_retry.cc
++++ b/cloud/aws/aws_retry.cc
+@@ -111,6 +111,12 @@ Status AwsCloudOptions::GetClientConfiguration(CloudEnv *env,
+   config->requestTimeoutMs = 600000;
+   
+   const auto & cloud_env_options = env->GetCloudEnvOptions();
++
++  // Set up endpoint to support other
++  if (cloud_env_options.endpoint != "") {
++    config->endpointOverride = cloud_env_options.endpoint;
++  }
++
+   // Setup how retries need to be done
+   config->retryStrategy = std::make_shared<AwsRetryStrategy>(env);
+   if (cloud_env_options.request_timeout_ms != 0) {
+diff --git a/cloud/examples/Makefile b/cloud/examples/Makefile
+index 6379aa23e..6d738a170 100644
+--- a/cloud/examples/Makefile
++++ b/cloud/examples/Makefile
+@@ -10,7 +10,7 @@ endif
+ 
+ .PHONY: clean librocksdb
+ 
+-all: cloud_durable_example clone_example cloud_dump
++all: cloud_durable_example clone_example cloud_dump c_cloud_example
+ 
+ cloud_durable_example: librocksdb cloud_durable_example.cc
+ 	$(CXX) $(CXXFLAGS) $@.cc -o $@ ../../librocksdb.a -I../../include $(OPT) -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
+@@ -21,8 +21,15 @@ clone_example: librocksdb clone_example.cc
+ cloud_dump: librocksdb cloud_dump.cc
+ 	$(CXX) $(CXXFLAGS) $@.cc -o $@ ../../librocksdb.a -I../../include $(OPT) -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
+ 
++.c.o:
++	$(CC) $(CFLAGS) -c $< -o $@ -I../../include
++
++c_cloud_example: librocksdb c_cloud_example.o
++	$(CXX) $@.o -o$@ ../../librocksdb.a $(PLATFORM_LDFLAGS)
++
++
+ clean:
+-	rm -rf ./cloud_durable_example  ./clone_example ./cloud_dump
++	rm -rf ./cloud_durable_example  ./clone_example ./cloud_dump c_cloud_example.o ./c_cloud_example
+ 
+ librocksdb:
+ 	cd ../.. && $(MAKE) static_lib
+diff --git a/cloud/examples/c_cloud_example.c b/cloud/examples/c_cloud_example.c
+new file mode 100644
+index 000000000..0a0078427
+--- /dev/null
++++ b/cloud/examples/c_cloud_example.c
+@@ -0,0 +1,60 @@
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <assert.h>
++#include "rocksdb/c.h"
++
++
++
++int main() {
++  
++  char *kBucketName = "cloud-c-example-swj";
++  char *kRegion = "cn-east-1";
++  char *kDBpath = "/tmp/rocksdb_c_cloud_example";
++  char *err = NULL;
++  char *persistent_cache_path = "";
++  char *bucketPrefix = "rockset-";
++  char *endpoint = "http://s3-cn-east-1.qiniucs.com";
++  
++  // char *access_key_id = "***";
++  // char *secret_access_key = "***";
++  rocksdb_cloud_t* dbcloud;
++  rocksdb_options_t *opt;
++  rocksdb_cloudenv_t* cloudenv;
++  rocksdb_cloudenv_options_t* cloudenv_options; 
++
++  opt = rocksdb_options_create();
++  cloudenv_options = rocksdb_cloudenv_options_create();
++  rocksdb_cloudenv_options_set_srcbucket(cloudenv_options,kBucketName,bucketPrefix);
++  rocksdb_cloudenv_options_set_dstbucket(cloudenv_options,kBucketName,bucketPrefix);
++  rocksdb_cloudenv_options_set_endpoint(cloudenv_options,endpoint);
++  cloudenv =  rocksdb_create_aws_env(cloudenv_options,kBucketName,kDBpath,kRegion,
++                                    kBucketName,kDBpath,kRegion,&err);
++  assert(!err);
++
++  rocksdb_options_set_cloudenv(opt, cloudenv);
++  rocksdb_options_set_create_if_missing(opt, 1);
++
++  dbcloud = rocksdb_cloud_open(opt,kDBpath,persistent_cache_path,0,&err);
++  assert(!err);
++
++  // Put key-value
++  rocksdb_writeoptions_t *writeoptions = rocksdb_writeoptions_create();
++  const char key[] = "key";
++  const char *value = "value";
++  rocksdb_put(dbcloud, writeoptions, key, strlen(key), value, strlen(value) + 1,
++              &err);
++    assert(!err);
++  // Get value
++  rocksdb_readoptions_t *readoptions = rocksdb_readoptions_create();
++  size_t len;
++  char *returned_value =
++      rocksdb_get(dbcloud, readoptions, key, strlen(key), &len, &err);
++  assert(!err);
++  assert(strcmp(returned_value, "value") == 0);
++  free(returned_value);
++  rocksdb_cloud_close(dbcloud);
++  rocksdb_cloudenv_destroy(cloudenv);
++  rocksdb_cloudenv_options_destroy(cloudenv_options);
++  return 0;
++}
+\ No newline at end of file
+diff --git a/cloud/examples/clone_example.cc b/cloud/examples/clone_example.cc
+index 2fc569b74..1c8e87588 100644
+--- a/cloud/examples/clone_example.cc
++++ b/cloud/examples/clone_example.cc
+@@ -26,8 +26,8 @@ std::string kClonePath = "/tmp/rocksdb_clone_db";
+ // In this example, the database and its clone are both stored in
+ // the same bucket (obviously with different pathnames).
+ //
+-std::string kBucketSuffix = "cloud.clone.example.";
+-std::string kRegion = "us-west-2";
++std::string kBucketSuffix = "cloud-clone-example-";
++std::string kRegion = "cn-east-1";
+ 
+ //
+ // Creates and Opens a clone
+@@ -83,6 +83,8 @@ int main() {
+   // cloud environment config options here
+   CloudEnvOptions cloud_env_options;
+ 
++  cloud_env_options.endpoint = "http://s3-cn-east-1.qiniucs.com";
++
+   // Store a reference to a cloud env. A new cloud env object should be
+   // associated
+   // with every new cloud-db.
+@@ -102,7 +104,7 @@ int main() {
+   char* user = getenv("USER");
+   kBucketSuffix.append(user);
+ 
+-  const std::string bucketPrefix = "rockset.";
++  const std::string bucketPrefix = "rockset-";
+   // create a bucket name for debugging purposes
+   const std::string bucketName = bucketPrefix + kBucketSuffix;
+ 
+diff --git a/cloud/examples/cloud_dump.cc b/cloud/examples/cloud_dump.cc
+index 29b62658f..edf55c949 100644
+--- a/cloud/examples/cloud_dump.cc
++++ b/cloud/examples/cloud_dump.cc
+@@ -16,13 +16,19 @@ std::string kDBPath = "/tmp/rocksdb_cloud_durable";
+ // ensure that this bucket name is unique to you and does not
+ // conflict with any other S3 users who might have already created
+ // this bucket name.
+-std::string kBucketSuffix = "cloud.durable.example.";
+-std::string kRegion = "us-west-2";
++std::string kBucketSuffix = "cloud-durable-example-";
++std::string kRegion = "cn-east-1";
++
+ 
+ int main() {
+   // cloud environment config options here
+   CloudEnvOptions cloud_env_options;
+ 
++  // AwsCloudAccessCredentials credentials;
++  // credentials.InitializeSimple(access_key_id,aws_secret_access_key);
++  // cloud_env_options.credentials = credentials;
++
++  cloud_env_options.endpoint = "http://s3-cn-east-1.qiniucs.com";
+   // Store a reference to a cloud env. A new cloud env object should be
+   // associated
+   // with every new cloud-db.
+@@ -43,7 +49,7 @@ int main() {
+   kBucketSuffix.append(user);
+ 
+   // "rockset." is the default bucket prefix
+-  const std::string bucketPrefix = "rockset.";
++  const std::string bucketPrefix = "rockset-";
+   cloud_env_options.src_bucket.SetBucketName(kBucketSuffix,bucketPrefix);
+   cloud_env_options.dest_bucket.SetBucketName(kBucketSuffix,bucketPrefix);
+   
+diff --git a/cloud/examples/cloud_durable_example.cc b/cloud/examples/cloud_durable_example.cc
+index 205b7b146..237227758 100644
+--- a/cloud/examples/cloud_durable_example.cc
++++ b/cloud/examples/cloud_durable_example.cc
+@@ -16,8 +16,8 @@ std::string kDBPath = "/tmp/rocksdb_cloud_durable";
+ // ensure that this bucket name is unique to you and does not
+ // conflict with any other S3 users who might have already created
+ // this bucket name.
+-std::string kBucketSuffix = "cloud.durable.example.";
+-std::string kRegion = "us-west-2";
++std::string kBucketSuffix = "cloud-durable-example-";
++std::string kRegion = "cn-east-1";
+ 
+ static const bool flushAtEnd = true;
+ static const bool disableWAL = false;
+@@ -26,6 +26,7 @@ int main() {
+   // cloud environment config options here
+   CloudEnvOptions cloud_env_options;
+ 
++  cloud_env_options.endpoint = "http://s3-cn-east-1.qiniucs.com";
+   // Store a reference to a cloud env. A new cloud env object should be
+   // associated
+   // with every new cloud-db.
+@@ -46,7 +47,7 @@ int main() {
+   kBucketSuffix.append(user);
+ 
+   // "rockset." is the default bucket prefix
+-  const std::string bucketPrefix = "rockset.";
++  const std::string bucketPrefix = "rockset-";
+   cloud_env_options.src_bucket.SetBucketName(kBucketSuffix,bucketPrefix);
+   cloud_env_options.dest_bucket.SetBucketName(kBucketSuffix,bucketPrefix);
+ 
+diff --git a/db/c.cc b/db/c.cc
+index b1fe76019..c8e24ec16 100644
+--- a/db/c.cc
++++ b/db/c.cc
+@@ -29,7 +29,10 @@
+ #include "rocksdb/statistics.h"
+ #include "rocksdb/status.h"
+ #include "rocksdb/table.h"
++#include "rocksdb/cloud/cloud_env_options.h"
++#include "rocksdb/cloud/db_cloud.h"
+ #include "rocksdb/universal_compaction.h"
++#include "rocksdb/utilities/stackable_db.h"
+ #include "rocksdb/utilities/backupable_db.h"
+ #include "rocksdb/utilities/checkpoint.h"
+ #include "rocksdb/utilities/db_ttl.h"
+@@ -115,6 +118,12 @@ using rocksdb::PerfLevel;
+ using rocksdb::PerfContext;
+ using rocksdb::MemoryUtil;
+ 
++using rocksdb::StackableDB;
++using rocksdb::DBCloud;
++using rocksdb::CloudEnv;
++using rocksdb::CloudEnvOptions;
++using rocksdb::AwsCloudAccessCredentials;
++
+ using std::shared_ptr;
+ using std::vector;
+ using std::unordered_set;
+@@ -455,6 +464,21 @@ struct rocksdb_universal_compaction_options_t {
+   rocksdb::CompactionOptionsUniversal *rep;
+ };
+ 
++// rocksdb-cloud c api
++struct rocksdb_cloud_t {
++  DBCloud* rep;
++};
++
++struct rocksdb_cloudenv_t {
++  CloudEnv* rep;
++};
++
++struct rocksdb_cloudenv_options_t {
++  CloudEnvOptions rep;
++};
++
++
++
+ static bool SaveError(char** errptr, const Status& s) {
+   assert(errptr != nullptr);
+   if (s.ok()) {
+@@ -4397,6 +4421,103 @@ void rocksdb_approximate_memory_usage_destroy(rocksdb_memory_usage_t* usage) {
+   delete usage;
+ }
+ 
++// rocksdb-cloud 
++rocksdb_cloudenv_options_t* rocksdb_cloudenv_options_create() {
++  rocksdb_cloudenv_options_t* opt = new rocksdb_cloudenv_options_t;
++  return opt;
++}
++
++void rocksdb_options_set_cloudenv(rocksdb_options_t* opt, rocksdb_cloudenv_t* env) {
++  opt->rep.env = env->rep;
++}
++
++void rocksdb_cloudenv_options_destroy(rocksdb_cloudenv_options_t* opt) { delete opt; }
++
++void rocksdb_cloudenv_options_set_srcbucket(rocksdb_cloudenv_options_t *opt, const char* bucket, const char* prefix) {
++  opt->rep.src_bucket.SetBucketName(std::string(bucket), std::string(prefix));
++}
++
++void rocksdb_cloudenv_options_set_dstbucket(rocksdb_cloudenv_options_t *opt, const char* bucket, const char* prefix) {
++  opt->rep.dest_bucket.SetBucketName(std::string(bucket), std::string(prefix));
++}
++
++void rocksdb_cloudenv_options_set_endpoint(rocksdb_cloudenv_options_t *opt, const char* endpoint) {
++  opt->rep.endpoint = std::string(endpoint);
++}
++
++void rocksdb_cloudenv_options_set_runpurger(rocksdb_cloudenv_options_t *opt, unsigned char run_purger) {
++  opt->rep.run_purger = run_purger;
++}
++
++void rocksdb_cloudenv_options_set_request_timeout(rocksdb_cloudenv_options_t *opt, uint64_t request_timeout_ms) {
++  opt->rep.request_timeout_ms = request_timeout_ms;
++}
++
++// provide the aws key id and secrete access key
++void rocksdb_cloudenv_options_set_credentials(rocksdb_cloudenv_options_t* opt, const char* access_key_id, const char* secret_access_key) {
++  AwsCloudAccessCredentials credentials;
++  credentials.InitializeSimple(access_key_id,secret_access_key);
++  opt->rep.credentials = credentials;
++}
++
++//create new aws env
++rocksdb_cloudenv_t* rocksdb_create_aws_env(
++  rocksdb_cloudenv_options_t* cloud_env_options,
++  const char* src_bucket_name,
++  const char* src_object_prefix,
++  const char* src_bucket_region,
++  const char* dest_bucket_name,
++  const char* dest_object_prefix,
++  const char* dest_bucket_region,
++  char** errptr) {
++  rocksdb_cloudenv_t* result = new rocksdb_cloudenv_t;
++  CloudEnv *cenv;
++  // if (SaveError(errptr, CloudEnv::NewAwsEnv(Env::Default(),
++  //                         std::string(src_bucket_name), std::string(src_object_prefix), std::string(src_bucket_region),
++  //                         std::string(dest_bucket_name), std::string(dest_object_prefix), std::string(dest_bucket_region),
++  //                         cloud_env_options->rep, nullptr, &cenv))) {
++  //   return nullptr;
++  // } 
++  Status s =  CloudEnv::NewAwsEnv(Env::Default(),std::string(src_bucket_name), std::string(src_object_prefix), std::string(src_bucket_region),
++                  std::string(dest_bucket_name), std::string(dest_object_prefix), std::string(dest_bucket_region), cloud_env_options->rep, nullptr, &cenv);
++  if (s.ok()) {
++    result->rep = cenv;
++    return result;
++  } else {
++    if (!s.IsNotFound()) {
++      SaveError(errptr, s);
++    }
++  }
++  return nullptr;
++}
++
++// destory rocksdb cloudenv
++void rocksdb_cloudenv_destroy(rocksdb_cloudenv_t* env) {
++  delete env->rep;
++}
++
++// rocksdb cloud open
++rocksdb_cloud_t* rocksdb_cloud_open(
++    const rocksdb_options_t* options,
++    const char* name,
++    const char* persistent_cache_path,
++    const uint64_t persistent_cache_size_gb,  
++    char** errptr) {
++
++  DBCloud* db;
++  if (SaveError(errptr, DBCloud::Open(options->rep, std::string(name), std::string(persistent_cache_path),persistent_cache_size_gb,&db))) {
++    return nullptr;
++  }
++  rocksdb_cloud_t* result = new rocksdb_cloud_t;
++  result->rep = db;
++  return result;
++}
++
++//close rocksdb cloud
++void rocksdb_cloud_close(rocksdb_cloud_t* opt) {
++  delete opt->rep;
++}
++
+ }  // end extern "C"
+ 
+ #endif  // !ROCKSDB_LITE
+diff --git a/include/rocksdb/c.h b/include/rocksdb/c.h
+index 525e38138..2dd051205 100644
+--- a/include/rocksdb/c.h
++++ b/include/rocksdb/c.h
+@@ -126,6 +126,10 @@ typedef struct rocksdb_wal_readoptions_t rocksdb_wal_readoptions_t;
+ typedef struct rocksdb_memory_consumers_t rocksdb_memory_consumers_t;
+ typedef struct rocksdb_memory_usage_t rocksdb_memory_usage_t;
+ 
++typedef struct rocksdb_cloud_t rocksdb_cloud_t;
++typedef struct rocksdb_cloudenv_t rocksdb_cloudenv_t;
++typedef struct rocksdb_cloudenv_options_t rocksdb_cloudenv_options_t;
++
+ /* DB operations */
+ 
+ extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open(
+@@ -1771,6 +1775,38 @@ extern ROCKSDB_LIBRARY_API uint64_t
+ rocksdb_approximate_memory_usage_get_cache_total(
+     rocksdb_memory_usage_t* memory_usage);
+ 
++// rocksdb_cloud api
++extern ROCKSDB_LIBRARY_API rocksdb_cloudenv_options_t* rocksdb_cloudenv_options_create(); 
++extern ROCKSDB_LIBRARY_API void rocksdb_cloudenv_options_destroy(rocksdb_cloudenv_options_t* opt);
++extern ROCKSDB_LIBRARY_API void rocksdb_options_set_cloudenv(rocksdb_options_t* opt, rocksdb_cloudenv_t* env);
++extern ROCKSDB_LIBRARY_API void rocksdb_cloudenv_options_set_srcbucket(
++    rocksdb_cloudenv_options_t *opt, const char* bucket, const char* prefix);
++extern ROCKSDB_LIBRARY_API void rocksdb_cloudenv_options_set_dstbucket(
++    rocksdb_cloudenv_options_t *opt, const char* bucket, const char* prefix);
++extern ROCKSDB_LIBRARY_API void rocksdb_cloudenv_options_set_endpoint(rocksdb_cloudenv_options_t *opt, const char* endpoint);
++extern ROCKSDB_LIBRARY_API void rocksdb_cloudenv_options_set_runpurger(rocksdb_cloudenv_options_t *opt, unsigned char);
++extern ROCKSDB_LIBRARY_API void rocksdb_cloudenv_options_set_request_timeout(rocksdb_cloudenv_options_t *opt, uint64_t request_timeout_ms);
++extern ROCKSDB_LIBRARY_API void rocksdb_cloudenv_options_set_credentials(rocksdb_cloudenv_options_t* opt, const char* access_key_id, const char* secret_access_key);
++extern ROCKSDB_LIBRARY_API rocksdb_cloudenv_t* rocksdb_create_aws_env(
++  rocksdb_cloudenv_options_t* cloud_env_options,
++  const char* src_bucket_name,
++  const char* src_object_prefix,
++  const char* src_bucket_region,
++  const char* dest_bucket_name,
++  const char* dest_object_prefix,
++  const char* dest_bucket_region,
++  char** errptr);
++extern ROCKSDB_LIBRARY_API void rocksdb_cloudenv_destroy(rocksdb_cloudenv_t* env);
++
++extern ROCKSDB_LIBRARY_API rocksdb_cloud_t* rocksdb_cloud_open(
++    const rocksdb_options_t* options,
++    const char* name,
++    const char* persistent_cache_path,
++    const uint64_t persistent_cache_size_gb, 
++    char** errptr); 
++    
++extern ROCKSDB_LIBRARY_API void rocksdb_cloud_close(rocksdb_cloud_t* opt);
++
+ #ifdef __cplusplus
+ }  /* end extern "C" */
+ #endif
+diff --git a/include/rocksdb/cloud/cloud_env_options.h b/include/rocksdb/cloud/cloud_env_options.h
+index 88d2e58f3..e2bbcaa7f 100644
+--- a/include/rocksdb/cloud/cloud_env_options.h
++++ b/include/rocksdb/cloud/cloud_env_options.h
+@@ -235,6 +235,10 @@ private:
+   // means the default timeout assigned by the underlying cloud storage.
+   uint64_t request_timeout_ms;
+ 
++  // If non-empty, uses the key ID for encryption.
++  // Default: empty
++  std::string endpoint;
++
+   // Use this to turn off the purger. You can do this if you don't use the clone
+   // feature of RocksDB cloud
+   // Default: true
+@@ -275,8 +279,9 @@ private:
+       std::shared_ptr<CloudRequestCallback> _cloud_request_callback = nullptr,
+       bool _server_side_encryption = false, std::string _encryption_key_id = "",
+       bool _create_bucket_if_missing = true, uint64_t _request_timeout_ms = 0,
+-      bool _run_purger = false, bool _ephemeral_resync_on_open = false,
+-      bool _skip_dbid_verification = false,
++      std::string _endpoint = "", bool _run_purger = false, 
++      bool _ephemeral_resync_on_open = false,
++      bool _skip_dbid_verification = false, 
+       bool _use_aws_transfer_manager = false)
+       : cloud_type(_cloud_type),
+         log_type(_log_type),
+@@ -289,6 +294,7 @@ private:
+         encryption_key_id(std::move(_encryption_key_id)),
+         create_bucket_if_missing(_create_bucket_if_missing),
+         request_timeout_ms(_request_timeout_ms),
++        endpoint(_endpoint),
+         run_purger(_run_purger),
+         ephemeral_resync_on_open(_ephemeral_resync_on_open),
+         skip_dbid_verification(_skip_dbid_verification),
+-- 
+2.16.2
+
