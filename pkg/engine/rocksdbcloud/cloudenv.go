@@ -127,20 +127,15 @@ func (opts *CloudEnvOptions) SetDstBucket(bucket string, prefix string) {
 	C.rocksdb_cloudenv_options_set_dstbucket(opts.c,cbucket,cprefix)
 }
 
+func (opts *CloudEnvOptions) SetCreateIfMissing(value bool) {
+	var b = 0
+	if value {
+		b = 1
+	}
+	C.rocksdb_options_set_create_if_missing(opts.cc, C.uchar(b))
+}
 
 func (opts *CloudEnvOptions) SetEnv(env *Env) {
 	opts.env = env
 	C.rocksdb_options_set_env(opts.cc, env.c)
 }
-
-
-
-// // SetCloudEnv sets the specified object to interact with the environment,
-// // e.g. to read/write files, schedule background work, etc.
-// // CloudEnv: CloudEnv
-// func SetCloudEnv(opts gorocksdb.Options,value *CloudEnv) {
-// 	// convert cloudenv to env
-// 	opts.env = (*gorocksdb.Env)(unsafe.Pointer(value))
-
-// 	C.rocksdb_options_set_cloudenv(opts.c, value.c)
-// }

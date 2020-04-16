@@ -22,11 +22,12 @@ func newTestCloudDB(t *testing.T, applyOpts func(opts *gorocksdb.Options)) *DBCl
 
 	cloudEnvOpts := NewCloudEnvOptions()
 
-	//cloudEnvOpts.SetCredentials("W2YQeHO6c_79J9xszcEK3StdveVNdvjF0-gJuLqL", "9kU1ZT8jgs6ntO80lMSvtHrZqpM9jb3dEfBAHRzD")
-	cloudEnvOpts.SetEndPoint("http://s3-cn-east-1.qiniucs.com")
+	//cloudEnvOpts.SetEndPoint("http://s3-cn-east-1.qiniucs.com")
+
+	cloudEnvOpts.SetEndPoint("http://oss-cn-shanghai.aliyuncs.com")
 	cloudEnvOpts.SetSrcBucket(kBucketname,kBucketPrefix)
 	cloudEnvOpts.SetDstBucket(kBucketname,kBucketPrefix)
-
+	cloudEnvOpts.SetCreateIfMissing(true)
 	cloudenv,err := NewAwsCloudEnv(kBucketname,kDbPath,kRegion,kBucketname,kDbPath,kRegion,cloudEnvOpts)
 	ensure.Nil(t, err)
 
