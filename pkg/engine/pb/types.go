@@ -3,12 +3,14 @@ package pb
 import "github.com/cockroachdb/pebble"
 
 type pbEngine struct {
-	db *pebble.DB
+	db  *pebble.DB
+	opt *pebble.WriteOptions
 }
 
 type pbBatch struct {
 	db  *pebble.DB
 	bat *pebble.Batch
+	opt *pebble.WriteOptions
 }
 
 type pbIterator struct {

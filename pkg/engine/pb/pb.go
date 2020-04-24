@@ -6,12 +6,16 @@ import (
 	"github.com/deepfabric/thinkbasekv/pkg/engine"
 )
 
-func New(name string, fs vfs.FS) engine.DB {
-	if db, err := pebble.Open(name, &pebble.Options{FS: fs}); err != nil {
+func New(name string, fs vfs.FS, syncWrite bool) engine.DB {
+	if db, err := pebble.Open(name, &pebble.Options{FS: fs, DisableWAL: !syncWrite}); err != nil {
 		return nil
 	} else {
-		return &pbEngine{db}
+		return &pbEngine{db, &pebble.WriteOptions{syncWrite}}
 	}
+}
+
+func (db *pbEngine) Sync() error {
+	return db.db.Flush()
 }
 
 func (db *pbEngine) Close() error {
@@ -19,7 +23,7 @@ func (db *pbEngine) Close() error {
 }
 
 func (db *pbEngine) NewBatch() (engine.Batch, error) {
-	return &pbBatch{db: db.db, bat: db.db.NewBatch()}, nil
+	return &pbBatch{db: db.db, bat: db.db.NewBatch(), opt: db.opt}, nil
 }
 
 func (db *pbEngine) NewSnapshot() (engine.Snapshot, error) {
@@ -38,11 +42,11 @@ func (db *pbEngine) NewIterator(k []byte) (engine.Iterator, error) {
 }
 
 func (db *pbEngine) Del(k []byte) error {
-	return db.db.Delete(k, nil)
+	return db.db.Delete(k, db.opt)
 }
 
 func (db *pbEngine) Set(k, v []byte) error {
-	return db.db.Set(k, v, nil)
+	return db.db.Set(k, v, db.opt)
 }
 
 func (db *pbEngine) Get(k []byte) ([]byte, error) {
@@ -64,15 +68,15 @@ func (b *pbBatch) Cancel() error {
 }
 
 func (b *pbBatch) Commit() error {
-	return b.db.Apply(b.bat, nil)
+	return b.db.Apply(b.bat, b.opt)
 }
 
 func (b *pbBatch) Del(k []byte) error {
-	return b.bat.Delete(k, nil)
+	return b.bat.Delete(k, b.opt)
 }
 
 func (b *pbBatch) Set(k, v []byte) error {
-	return b.bat.Set(k, v, nil)
+	return b.bat.Set(k, v, b.opt)
 }
 
 func (itr *pbIterator) Close() error {

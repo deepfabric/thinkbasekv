@@ -7,6 +7,7 @@ var (
 )
 
 type DB interface {
+	Sync() error
 	Close() error
 	NewBatch() (Batch, error)
 	NewSnapshot() (Snapshot, error)

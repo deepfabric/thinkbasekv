@@ -1,53 +1,34 @@
 package rocksdbcloud
 
-
 import (
-	"github.com/facebookgo/ensure"
-	"github.com/tecbot/gorocksdb"
+	"fmt"
 	"testing"
 	"unsafe"
+
+	"github.com/facebookgo/ensure"
+	"github.com/tecbot/gorocksdb"
 )
 
 func newTestCloudDB(t *testing.T, applyOpts func(opts *gorocksdb.Options)) *DBCloud {
-
-	//dir, err := ioutil.TempDir("", "/tmp/rocksdb_c_cloud_example")
-	//ensure.Nil(t, err)
-
 	kBucketname := "cloud-c-example-swj"
 	kRegion := "cn-east-1"
 	kDbPath := "/tmp/rocksdb_c_cloud_example"
 
 	kBucketPrefix := "rockset-"
 
-
 	cloudEnvOpts := NewCloudEnvOptions()
 
-	//cloudEnvOpts.SetEndPoint("http://s3-cn-east-1.qiniucs.com")
+	cloudEnvOpts.SetEndPoint("http://s3-cn-east-1.qiniucs.com")
 
-	cloudEnvOpts.SetEndPoint("http://oss-cn-shanghai.aliyuncs.com")
-	cloudEnvOpts.SetSrcBucket(kBucketname,kBucketPrefix)
-	cloudEnvOpts.SetDstBucket(kBucketname,kBucketPrefix)
+	cloudEnvOpts.SetSrcBucket(kBucketname, kBucketPrefix)
+	cloudEnvOpts.SetDstBucket(kBucketname, kBucketPrefix)
 	cloudEnvOpts.SetCreateIfMissing(true)
-	cloudenv,err := NewAwsCloudEnv(kBucketname,kDbPath,kRegion,kBucketname,kDbPath,kRegion,cloudEnvOpts)
+	cloudenv, err := NewAwsCloudEnv(kBucketname, kDbPath, kRegion, kBucketname, kDbPath, kRegion, cloudEnvOpts)
 	ensure.Nil(t, err)
 
 	cloudEnvOpts.SetEnv((*Env)(unsafe.Pointer(cloudenv)))
 
-	//opts := gorocksdb.NewNativeOptions(cloudEnvOpts.cc)
-	//opts := gorocksdb.NewDefaultOptions()
-	// test the ratelimiter
-	//rateLimiter := gorocksdb.NewRateLimiter(1024, 100*1000, 10)
-	//opts.SetRateLimiter(rateLimiter)
-	//opts.SetCreateIfMissing(true)
-
-	//opts.SetEnv((*gorocksdb.Env)(unsafe.Pointer(cloudenv)))
-
-	//if applyOpts != nil {
-	//	applyOpts(opts)
-	//}
-
-
-	dbcloud, err := OpenCloudDb(cloudEnvOpts, kDbPath,"",0)
+	dbcloud, err := OpenCloudDb(cloudEnvOpts, kDbPath, "", 0)
 	ensure.Nil(t, err)
 
 	return dbcloud
@@ -58,7 +39,6 @@ func TestOpenCloudDb(t *testing.T) {
 	dbcloud := newTestCloudDB(t, nil)
 	defer dbcloud.Close()
 }
-
 
 func TestCloudDBCRUD(t *testing.T) {
 	dbcloud := newTestCloudDB(t, nil)
@@ -78,6 +58,7 @@ func TestCloudDBCRUD(t *testing.T) {
 
 	// retrieve
 	v1, err := db.Get(ro, givenKey)
+	fmt.Printf("v1: %s\n", string(v1.Data()))
 	defer v1.Free()
 	ensure.Nil(t, err)
 	ensure.DeepEqual(t, v1.Data(), givenVal1)
@@ -85,6 +66,7 @@ func TestCloudDBCRUD(t *testing.T) {
 	// update
 	ensure.Nil(t, db.Put(wo, givenKey, givenVal2))
 	v2, err := db.Get(ro, givenKey)
+	fmt.Printf("v2: %s\n", string(v2.Data()))
 	defer v2.Free()
 	ensure.Nil(t, err)
 	ensure.DeepEqual(t, v2.Data(), givenVal2)
