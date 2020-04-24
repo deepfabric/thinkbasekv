@@ -3,7 +3,7 @@ package pb
 import (
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/vfs"
-	"github.com/deepfabric/thinkbasekv/pkg/engine"
+	"github.com/deepfabric/thinkkv/pkg/engine"
 )
 
 func New(name string, fs vfs.FS, syncWrite bool) engine.DB {
