@@ -1,4 +1,4 @@
-module github.com/deepfabric/thinkbasekv
+module github.com/deepfabric/thinkkv
 
 go 1.13
 
