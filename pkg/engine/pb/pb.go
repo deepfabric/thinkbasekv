@@ -94,8 +94,7 @@ func (itr *pbIterator) Valid() bool {
 }
 
 func (itr *pbIterator) Seek(k []byte) error {
-	k[len(k)-1] += 1
-	itr.itr.SeekLT(k)
+	itr.itr.SeekGE(k)
 	return nil
 }
 
