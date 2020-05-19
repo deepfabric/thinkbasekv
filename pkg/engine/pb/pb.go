@@ -6,8 +6,8 @@ import (
 	"github.com/deepfabric/thinkkv/pkg/engine"
 )
 
-func New(name string, fs vfs.FS, syncWrite bool) engine.DB {
-	if db, err := pebble.Open(name, &pebble.Options{FS: fs, DisableWAL: !syncWrite}); err != nil {
+func New(name string, fs vfs.FS, readOnly, syncWrite bool) engine.DB {
+	if db, err := pebble.Open(name, &pebble.Options{FS: fs, ReadOnly: readOnly, DisableWAL: !syncWrite}); err != nil {
 		return nil
 	} else {
 		return &pbEngine{db, &pebble.WriteOptions{syncWrite}}
