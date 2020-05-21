@@ -6,8 +6,13 @@ import (
 	"github.com/deepfabric/thinkkv/pkg/engine"
 )
 
-func New(name string, fs vfs.FS, readOnly, syncWrite bool) engine.DB {
-	if db, err := pebble.Open(name, &pebble.Options{FS: fs, ReadOnly: readOnly, DisableWAL: !syncWrite}); err != nil {
+func New(name string, fs vfs.FS, size int, readOnly, syncWrite bool) engine.DB {
+	if db, err := pebble.Open(name, &pebble.Options{
+		FS:           fs,
+		MemTableSize: size,
+		ReadOnly:     readOnly,
+		DisableWAL:   !syncWrite,
+	}); err != nil {
 		return nil
 	} else {
 		return &pbEngine{db, &pebble.WriteOptions{syncWrite}}
@@ -64,11 +69,11 @@ func (db *pbEngine) Get(k []byte) ([]byte, error) {
 }
 
 func (b *pbBatch) Cancel() error {
-	return nil
+	return b.bat.Close()
 }
 
 func (b *pbBatch) Commit() error {
-	return b.db.Apply(b.bat, b.opt)
+	return b.bat.Commit(b.opt)
 }
 
 func (b *pbBatch) Del(k []byte) error {

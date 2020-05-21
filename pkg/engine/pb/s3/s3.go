@@ -18,7 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/cockroachdb/pebble/vfs"
-	"github.com/deepfabric/thinkbasekv/pkg/engine/pb/s3/cfs"
+	"github.com/deepfabric/thinkkv/pkg/engine/pb/s3/cfs"
 )
 
 func New(cfg *Config, acl int) (*alis3, cfs.FS, error) {
